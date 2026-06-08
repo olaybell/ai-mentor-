@@ -1,11 +1,13 @@
 import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AdminDashboardLayout } from "../components/AdminDashboardLayout";
+import { createResource, deleteResource as deleteResourceRequest, fetchResources, updateResource } from "../lib/api";
 
 type ResourceStatus = "Available" | "Busy" | "Maintenance" | "Inactive";
 
 type Resource = {
-  id: string;
+  id: number;
   name: string;
   type: string;
   location: string;
@@ -16,44 +18,7 @@ type Resource = {
 
 type ResourceFormState = Omit<Resource, "id">;
 
-const initialResources: Resource[] = [
-  {
-    id: "resource-1",
-    name: "Room 1",
-    type: "Consultation room",
-    location: "First floor",
-    capacity: "1 staff, 2 customers",
-    usage: 88,
-    status: "Busy"
-  },
-  {
-    id: "resource-2",
-    name: "Room 2",
-    type: "Consultation room",
-    location: "First floor",
-    capacity: "1 staff, 2 customers",
-    usage: 64,
-    status: "Available"
-  },
-  {
-    id: "resource-3",
-    name: "Studio A",
-    type: "Training space",
-    location: "Ground floor",
-    capacity: "12 customers",
-    usage: 72,
-    status: "Busy"
-  },
-  {
-    id: "resource-4",
-    name: "Chair 3",
-    type: "Service station",
-    location: "Main hall",
-    capacity: "1 customer",
-    usage: 21,
-    status: "Maintenance"
-  }
-];
+// resources are loaded from the backend via React Query
 
 const emptyResourceForm: ResourceFormState = {
   name: "",
@@ -65,17 +30,50 @@ const emptyResourceForm: ResourceFormState = {
 };
 
 export function BusinessResourcesPage() {
-  const [resources, setResources] = useState<Resource[]>(initialResources);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | ResourceStatus>("All");
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingResourceId, setEditingResourceId] = useState<string | null>(null);
+  const [editingResourceId, setEditingResourceId] = useState<number | null>(null);
   const [resourceForm, setResourceForm] = useState<ResourceFormState>(emptyResourceForm);
+  const queryClient = useQueryClient();
+
+  const {
+    data: resourcesData = [],
+    isLoading: resourcesLoading,
+    isError: resourcesHasError,
+    error: resourcesError
+  } = useQuery<Resource[]>({
+    queryKey: ["resources"],
+    queryFn: fetchResources,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (payload: ResourceFormState) => createResource(payload),
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: ["resources"] });
+      closeResourceForm();
+    }
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: ResourceFormState }) => updateResource(id, payload),
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: ["resources"] });
+      closeResourceForm();
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteResourceRequest(id),
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: ["resources"] });
+    }
+  });
 
   const filteredResources = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    return resources
+    return resourcesData
       .filter((resource) => statusFilter === "All" || resource.status === statusFilter)
       .filter((resource) => {
         if (!query) {
@@ -93,7 +91,7 @@ export function BusinessResourcesPage() {
           .toLowerCase()
           .includes(query);
       });
-  }, [resources, searchQuery, statusFilter]);
+  }, [resourcesData, searchQuery, statusFilter]);
 
   function openAddResourceForm() {
     setEditingResourceId(null);
@@ -129,28 +127,16 @@ export function BusinessResourcesPage() {
 
   function saveResource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
     if (editingResourceId) {
-      setResources((currentResources) =>
-        currentResources.map((resource) =>
-          resource.id === editingResourceId ? { ...resource, ...resourceForm } : resource
-        )
-      );
-    } else {
-      setResources((currentResources) => [
-        {
-          id: `resource-${Date.now()}`,
-          ...resourceForm
-        },
-        ...currentResources
-      ]);
+      updateMutation.mutate({ id: editingResourceId, payload: resourceForm });
+      return;
     }
 
-    closeResourceForm();
+    createMutation.mutate(resourceForm);
   }
 
-  function deleteResource(resourceId: string) {
-    setResources((currentResources) => currentResources.filter((resource) => resource.id !== resourceId));
+  function deleteResource(resourceId: number) {
+    deleteMutation.mutate(resourceId);
   }
 
   return (
@@ -194,6 +180,12 @@ export function BusinessResourcesPage() {
             </select>
           </label>
         </div>
+
+        {resourcesHasError ? (
+          <div className="border-b border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
+            Unable to load resources: {resourcesError instanceof Error ? resourcesError.message : "Unknown error"}
+          </div>
+        ) : null}
 
         {isFormOpen ? (
           <form className="border-b border-slate-200 bg-slate-50 p-5" onSubmit={saveResource}>
@@ -298,7 +290,14 @@ export function BusinessResourcesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredResources.map((resource) => (
+              {resourcesLoading ? (
+                <tr>
+                  <td className="px-5 py-6 text-slate-500" colSpan={7}>
+                    Loading resources...
+                  </td>
+                </tr>
+              ) : (
+                filteredResources.map((resource) => (
                 <tr key={resource.id} className="hover:bg-slate-50">
                   <td className="px-5 py-4">
                     <p className="font-semibold text-slate-950">{resource.name}</p>
@@ -335,7 +334,8 @@ export function BusinessResourcesPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
 

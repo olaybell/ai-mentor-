@@ -1,4 +1,5 @@
-import { mockBookingSpecialists } from "../../data/adminBookingMockData";
+import { useQuery } from "@tanstack/react-query";
+import { fetchSpecialists } from "../../lib/api";
 import type { BookingSpecialist } from "../../types/adminBooking";
 
 type SpecialistAssignmentProps = {
@@ -18,7 +19,20 @@ export function SpecialistAssignment({
   onSelect,
   onRemove
 }: SpecialistAssignmentProps) {
+  const { data: specialists = [], isLoading, isError, error } = useQuery({
+    queryKey: ["specialists"],
+    queryFn: () => fetchSpecialists(),
+  });
   const selectedIds = new Set(selectedSpecialists.map((specialist) => specialist.id));
+  const bookingSpecialists: BookingSpecialist[] = specialists.map((specialist) => ({
+    id: specialist.id,
+    name: specialist.name,
+    role: specialist.title,
+    specialisation: specialist.specialisation,
+    experienceYears: specialist.experienceYears,
+    rating: specialist.rating,
+    availabilityStatus: specialist.availabilityStatus,
+  }));
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
@@ -31,7 +45,15 @@ export function SpecialistAssignment({
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-        {mockBookingSpecialists.map((specialist) => {
+        {isLoading ? (
+          <p className="text-sm text-slate-500">Loading specialists...</p>
+        ) : null}
+        {isError ? (
+          <p className="text-sm text-rose-700">
+            Unable to load specialists: {error instanceof Error ? error.message : "Unknown error"}
+          </p>
+        ) : null}
+        {bookingSpecialists.map((specialist) => {
           const selected = selectedIds.has(specialist.id);
           const unavailable = specialist.availabilityStatus === "Unavailable";
 

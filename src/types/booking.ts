@@ -24,8 +24,18 @@ export type Specialist = {
 };
 
 export type TimeSlot = {
+  id?: string;
+  timeSlotId?: string;
   time: string;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
   available: boolean;
+  conflictRisk?: ConflictRisk;
+  specialistUtilisation?: number;
+  serviceDuration?: number;
+  timeOfDay?: string;
+  dayOfWeek?: number;
 };
 
 export type ClientDetails = {
@@ -45,6 +55,22 @@ export type AIInsight = {
   utilisation: UtilisationStatus;
   explanation: string;
   confidence: number;
+  recommendations?: SlotRecommendation[];
+  fallbackUsed?: boolean;
+  engine?: "heuristic" | "llm";
+};
+
+export type SlotRecommendation = {
+  slotId: string;
+  timeSlotId?: string | null;
+  rank: number;
+  date: string;
+  time: string;
+  startTime: string;
+  endTime: string;
+  confidence: number;
+  score?: number;
+  rationale: string;
 };
 
 export type BookingRequest = {

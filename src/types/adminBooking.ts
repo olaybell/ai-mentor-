@@ -29,6 +29,7 @@ export type BookingSpecialist = {
 
 export type BookingTimeSlot = {
   id: string;
+  day?: string;
   time: string;
   isAvailable: boolean;
   maxBookingsPerSlot: number;
@@ -41,6 +42,7 @@ export type BookingAvailability = {
 
 export type PublishedBookingPage = BookingPageDraft & {
   id: string;
+  serviceId: string;
   slug: string;
   status: "published";
   publishedAt: string;

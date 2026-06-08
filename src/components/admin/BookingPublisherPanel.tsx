@@ -1,15 +1,18 @@
 import { useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { AvailabilityEditor } from "./AvailabilityEditor";
 import { BookingPreviewCard } from "./BookingPreviewCard";
 import { BookingSetupForm } from "./BookingSetupForm";
 import { PublishedBookingLink } from "./PublishedBookingLink";
 import { SpecialistAssignment } from "./SpecialistAssignment";
+import { publishPublicBookingPage } from "../../lib/api";
 import { useAdminBookingStore } from "../../store/adminBookingStore";
 import { validateBookingPageDraft } from "../../lib/mockPublishedBookingApi";
 
 export function BookingPublisherPanel() {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [publishAttempted, setPublishAttempted] = useState(false);
+  const [publishedPageLink, setPublishedPageLink] = useState("");
 
   const {
     draftBookingPage,
@@ -23,8 +26,6 @@ export function BookingPublisherPanel() {
     removeSpecialist,
     updateAvailability,
     updateTimeSlot,
-    publishBookingPage,
-    copyPublishedLink,
     resetDraftBookingPage
   } = useAdminBookingStore();
 
@@ -32,20 +33,45 @@ export function BookingPublisherPanel() {
     () => validateBookingPageDraft(draftBookingPage, selectedSpecialists, availability),
     [availability, draftBookingPage, selectedSpecialists]
   );
-  const publishStatus = isPublished ? "Published" : currentValidationErrors.length > 0 ? "Missing required fields" : "Ready to publish";
-  const visibleErrors = publishAttempted ? validationErrors : [];
+  const publishMutation = useMutation({
+    mutationFn: () =>
+      publishPublicBookingPage({
+        draft: draftBookingPage,
+        specialistIds: selectedSpecialists.map((specialist) => specialist.id),
+        availability,
+      }),
+    onSuccess(result) {
+      setPublishedPageLink(result.publicUrl);
+      setCopyStatus("idle");
+    }
+  });
+  const activePublishedLink = publishedPageLink || publishedLink;
+  const publishStatus = activePublishedLink ? "Published" : currentValidationErrors.length > 0 ? "Missing required fields" : "Ready to publish";
+  const visibleErrors = publishAttempted ? currentValidationErrors : validationErrors;
 
   function handlePublish() {
     setPublishAttempted(true);
-    const result = publishBookingPage();
 
-    if (result.success) {
-      setCopyStatus("idle");
+    if (currentValidationErrors.length > 0) {
+      return;
     }
+
+    publishMutation.mutate();
   }
 
   async function handleCopy() {
-    const copied = await copyPublishedLink();
+    const link = activePublishedLink;
+    let copied = false;
+
+    if (link && typeof navigator !== "undefined" && navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(link);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+
     setCopyStatus(copied ? "copied" : "failed");
   }
 
@@ -107,9 +133,20 @@ export function BookingPublisherPanel() {
               </div>
             ) : null}
 
+            {publishMutation.isError ? (
+              <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                {publishMutation.error instanceof Error ? publishMutation.error.message : "Unable to publish booking page."}
+              </div>
+            ) : null}
+
             <div className="mt-5 grid gap-3 sm:grid-cols-2 2xl:grid-cols-1">
-              <button type="button" className="btn-primary min-h-12 px-5 text-sm" onClick={handlePublish}>
-                Publish Booking Page
+              <button
+                type="button"
+                className="btn-primary min-h-12 px-5 text-sm disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                onClick={handlePublish}
+                disabled={publishMutation.isPending}
+              >
+                {publishMutation.isPending ? "Publishing..." : "Publish Booking Page"}
               </button>
               <button type="button" className="btn-secondary min-h-12 px-5 text-sm" onClick={resetDraftBookingPage}>
                 Reset draft
@@ -117,8 +154,8 @@ export function BookingPublisherPanel() {
             </div>
           </section>
 
-          {publishedLink ? (
-            <PublishedBookingLink link={publishedLink} copyStatus={copyStatus} onCopy={handleCopy} />
+          {activePublishedLink ? (
+            <PublishedBookingLink link={activePublishedLink} copyStatus={copyStatus} onCopy={handleCopy} />
           ) : null}
         </aside>
       </div>

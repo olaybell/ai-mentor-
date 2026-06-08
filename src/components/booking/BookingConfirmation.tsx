@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { BookingConfirmation as BookingConfirmationType } from "../../types/booking";
 
 type BookingConfirmationProps = {
@@ -23,7 +24,7 @@ export function BookingConfirmation({ confirmation, onReset }: BookingConfirmati
           Booking confirmed
         </h1>
         <p className="mt-3 text-slate-600">
-          Thanks, {confirmation.clientName}. Your appointment has been saved locally.
+          Thanks, {confirmation.clientName}. Your appointment has been saved in the booking system.
         </p>
 
         <dl className="mt-8 grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-5 text-left sm:grid-cols-2">
@@ -33,9 +34,14 @@ export function BookingConfirmation({ confirmation, onReset }: BookingConfirmati
           <SummaryItem label="Time" value={confirmation.time} />
         </dl>
 
-        <button type="button" onClick={onReset} className="btn-primary mt-8 min-h-12 px-6 text-sm">
-          Book Another Appointment
-        </button>
+        <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+          <Link className="btn-primary min-h-12 px-6 text-sm" to="/customer/dashboard">
+            View My Bookings
+          </Link>
+          <button type="button" onClick={onReset} className="btn-secondary min-h-12 px-6 text-sm">
+            Book Another Appointment
+          </button>
+        </div>
       </section>
     </main>
   );

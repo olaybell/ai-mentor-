@@ -54,6 +54,7 @@ export function createPublishedBookingPage(
   return {
     ...draft,
     id: `published-${Date.now()}`,
+    serviceId: "",
     slug,
     status: "published",
     publishedAt: new Date().toISOString(),

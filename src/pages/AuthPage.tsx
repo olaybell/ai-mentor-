@@ -1,6 +1,10 @@
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { Brand } from "../components/Brand";
+import { loginRequest, registerRequest } from "../lib/api";
+import { useAuthStore } from "../store/authStore";
+import type { AuthCredentials, AuthResponse, RegisterRequest } from "../types/auth";
 
 type AuthPageProps = {
   mode: "signin" | "signup" | "forgot";
@@ -8,13 +12,41 @@ type AuthPageProps = {
 
 export function AuthPage({ mode }: AuthPageProps) {
   const navigate = useNavigate();
+  const setSession = useAuthStore((state) => state.setSession);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [businessName, setBusinessName] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [accountType, setAccountType] = useState<"customer" | "business">("customer");
   const [resetRequested, setResetRequested] = useState(false);
   const isSignup = mode === "signup";
   const isForgotPassword = mode === "forgot";
+  const [authError, setAuthError] = useState("");
+
+  const loginMutation = useMutation({
+    mutationFn: (credentials: AuthCredentials) => loginRequest(credentials),
+    onSuccess: (data) => {
+      setSession(data);
+      navigate(getPostAuthPath(data), { replace: true });
+    },
+    onError: (error) => {
+      setAuthError(error instanceof Error ? error.message : "Unable to sign in right now.");
+    }
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: (payload: RegisterRequest) => registerRequest(payload),
+    onSuccess: (data) => {
+      setSession(data);
+      navigate(getPostAuthPath(data), { replace: true });
+    },
+    onError: (error) => {
+      setAuthError(error instanceof Error ? error.message : "Unable to create the account.");
+    }
+  });
 
   const pageContent = getAuthPageContent(mode);
+  const isSubmitting = loginMutation.isPending || registerMutation.isPending;
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8 text-slate-950">
@@ -51,19 +83,85 @@ export function AuthPage({ mode }: AuthPageProps) {
             className="space-y-5"
             onSubmit={(event) => {
               event.preventDefault();
+              setAuthError("");
+
               if (isForgotPassword) {
                 setResetRequested(true);
                 return;
               }
 
-              navigate("/dashboard");
+              if (isSignup) {
+                registerMutation.mutate({
+                  email,
+                  password,
+                  role: accountType === "business" ? "admin" : "customer",
+                  businessName: accountType === "business" ? businessName : undefined,
+                  fullName: accountType === "customer" ? fullName : undefined,
+                });
+                return;
+              }
+
+              loginMutation.mutate({ email, password });
             }}
           >
             {isSignup ? (
-              <label className="form-field">
-                <span>Business name</span>
-                <input type="text" placeholder="Bright Studio" autoComplete="organization" required />
-              </label>
+              <div className="space-y-5">
+                <div>
+                  <span className="text-sm font-semibold text-slate-800">Account type</span>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      aria-pressed={accountType === "customer"}
+                      className={`min-h-11 rounded-lg border px-4 text-sm font-semibold transition ${
+                        accountType === "customer"
+                          ? "border-slate-950 bg-slate-950 text-white"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                      }`}
+                      onClick={() => setAccountType("customer")}
+                    >
+                      Customer
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={accountType === "business"}
+                      className={`min-h-11 rounded-lg border px-4 text-sm font-semibold transition ${
+                        accountType === "business"
+                          ? "border-slate-950 bg-slate-950 text-white"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                      }`}
+                      onClick={() => setAccountType("business")}
+                    >
+                      Business
+                    </button>
+                  </div>
+                </div>
+
+                {accountType === "business" ? (
+                  <label className="form-field">
+                    <span>Business name</span>
+                    <input
+                      type="text"
+                      placeholder="Bright Studio"
+                      autoComplete="organization"
+                      value={businessName}
+                      onChange={(event) => setBusinessName(event.target.value)}
+                      required
+                    />
+                  </label>
+                ) : (
+                  <label className="form-field">
+                    <span>Full name</span>
+                    <input
+                      type="text"
+                      placeholder="Your name"
+                      autoComplete="name"
+                      value={fullName}
+                      onChange={(event) => setFullName(event.target.value)}
+                      required
+                    />
+                  </label>
+                )}
+              </div>
             ) : null}
 
             <label className="form-field">
@@ -115,8 +213,14 @@ export function AuthPage({ mode }: AuthPageProps) {
               </div>
             ) : null}
 
-            <button type="submit" className="btn-primary w-full py-3 text-sm">
-              {pageContent.submitLabel}
+            {authError ? (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-800">
+                {authError}
+              </div>
+            ) : null}
+
+            <button type="submit" className="btn-primary w-full py-3 text-sm" disabled={isSubmitting}>
+              {isSubmitting ? "Please wait..." : pageContent.submitLabel}
             </button>
           </form>
 
@@ -135,12 +239,12 @@ export function AuthPage({ mode }: AuthPageProps) {
 function getAuthPageContent(mode: AuthPageProps["mode"]) {
   if (mode === "signup") {
     return {
-      eyebrow: "Create workspace",
-      heroTitle: "Start managing bookings with less noise.",
-      heroBody: "AI-Booking keeps appointment requests, resource availability and conflict checks in one simple place.",
+      eyebrow: "Create account",
+      heroTitle: "Book or manage appointments from one place.",
+      heroBody: "Create a customer account to track appointments, or create a business account to publish booking pages and manage schedules.",
       formEyebrow: "Sign up",
       formTitle: "Create your account",
-      formBody: "Use your email and password to create a workspace.",
+      formBody: "Choose whether this account is for booking appointments or managing a business.",
       submitLabel: "Create account",
       footerPrompt: "Already have an account?",
       footerAction: "Sign in",
@@ -175,4 +279,8 @@ function getAuthPageContent(mode: AuthPageProps["mode"]) {
     footerAction: "Create one",
     footerHref: "/signup"
   };
+}
+
+function getPostAuthPath(session: AuthResponse) {
+  return session.user.role === "customer" ? "/customer/dashboard" : "/dashboard";
 }

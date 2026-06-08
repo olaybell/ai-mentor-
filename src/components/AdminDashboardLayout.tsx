@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Brand } from "./Brand";
+import { useAuthStore } from "../store/authStore";
 
 type NavItem = {
   label: string;
   path: string;
-  icon: "grid" | "calendar" | "resource" | "staff" | "insights" | "settings";
+  icon: "grid" | "calendar" | "pages" | "resource" | "staff" | "settings";
   hash?: string;
 };
 
@@ -18,9 +19,9 @@ type AdminDashboardLayoutProps = {
 const sidebarItems: NavItem[] = [
   { label: "Dashboard", path: "/dashboard", icon: "grid" },
   { label: "Calendar", path: "/dashboard/calendar", icon: "calendar" },
+  { label: "Booking Pages", path: "/dashboard/booking-pages", icon: "pages" },
   { label: "Resource", path: "/dashboard/resources", icon: "resource" },
   { label: "Staff", path: "/dashboard/staff", icon: "staff" },
-  { label: "AI Insights", path: "/dashboard", hash: "#ai-insights", icon: "insights" },
   { label: "Settings", path: "/dashboard/settings", icon: "settings" }
 ];
 
@@ -31,12 +32,11 @@ export function AdminDashboardLayout({
 }: AdminDashboardLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
+  const clearSession = useAuthStore((state) => state.clearSession);
 
   function handleLogout() {
-    localStorage.removeItem("ai-booking-token");
-    localStorage.removeItem("ai-booking-user");
-    sessionStorage.removeItem("ai-booking-token");
-    sessionStorage.removeItem("ai-booking-user");
+    clearSession();
     navigate("/signin", { replace: true });
   }
 
@@ -56,7 +56,7 @@ export function AdminDashboardLayout({
 
         <div className="mt-auto space-y-3">
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-950">Bright Studio</p>
+            <p className="text-sm font-semibold text-slate-950">{user?.businessName || "Business workspace"}</p>
             <p className="mt-1 text-sm leading-6 text-slate-500">
               Open today, 08:00 to 18:00. Conflict checks are active.
             </p>
@@ -153,9 +153,9 @@ function DashboardIcon({ name }: { name: NavItem["icon"] }) {
   const path = {
     grid: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
     calendar: "M7 3v3M17 3v3M5 8h14M6 5h12a2 2 0 0 1 2 2v11a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a2 2 0 0 1 2-2Z",
+    pages: "M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM14 3v5h5M8 13h8M8 17h6",
     resource: "M5 7h14M7 7v12M17 7v12M4 19h16M8 4h8l2 3H6z",
     staff: "M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM20 21v-2a3 3 0 0 0-2-2.83M16 3.13a4 4 0 0 1 0 7.75",
-    insights: "M4 19V5M8 17v-6M12 17V8M16 17v-4M20 17V6M3 19h18",
     settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.04A1.7 1.7 0 0 0 4.6 8.92a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.08V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.04A1.7 1.7 0 0 0 19.4 15Z"
   }[name];
 

@@ -1,64 +1,19 @@
 import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminDashboardLayout } from "../components/AdminDashboardLayout";
+import {
+  createStaff,
+  deleteStaff,
+  fetchStaff,
+  updateStaff,
+  type StaffMember,
+  type StaffMemberPayload
+} from "../lib/api";
 
-type StaffStatus = "Active" | "On leave" | "Inactive";
+type StaffStatus = StaffMember["status"];
 
-type StaffMember = {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  role: string;
-  services: string;
-  nextSlot: string;
-  status: StaffStatus;
-};
-
-type StaffFormState = Omit<StaffMember, "id">;
-
-const initialStaff: StaffMember[] = [
-  {
-    id: "staff-1",
-    name: "Dr. Mason",
-    email: "mason@brightstudio.example",
-    phone: "+1 (555) 014-1102",
-    role: "Consultant",
-    services: "Consultations, follow-ups",
-    nextSlot: "14:30",
-    status: "Active"
-  },
-  {
-    id: "staff-2",
-    name: "Nadia Stone",
-    email: "nadia@brightstudio.example",
-    phone: "+1 (555) 014-1188",
-    role: "Trainer",
-    services: "Equipment training",
-    nextSlot: "12:45",
-    status: "Active"
-  },
-  {
-    id: "staff-3",
-    name: "Ife Clarke",
-    email: "ife@brightstudio.example",
-    phone: "+1 (555) 014-1910",
-    role: "Specialist",
-    services: "Wellness reviews",
-    nextSlot: "15:00",
-    status: "On leave"
-  },
-  {
-    id: "staff-4",
-    name: "Leah Hart",
-    email: "leah@brightstudio.example",
-    phone: "+1 (555) 014-2017",
-    role: "Reception",
-    services: "Front desk, booking support",
-    nextSlot: "Now",
-    status: "Active"
-  }
-];
+type StaffFormState = StaffMemberPayload;
 
 const emptyStaffForm: StaffFormState = {
   name: "",
@@ -71,11 +26,44 @@ const emptyStaffForm: StaffFormState = {
 };
 
 export function BusinessStaffPage() {
-  const [staffMembers, setStaffMembers] = useState<StaffMember[]>(initialStaff);
   const [searchQuery, setSearchQuery] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
+  const [editingStaffId, setEditingStaffId] = useState<number | null>(null);
   const [staffForm, setStaffForm] = useState<StaffFormState>(emptyStaffForm);
+  const queryClient = useQueryClient();
+
+  const {
+    data: staffMembers = [],
+    isLoading,
+    isError,
+    error
+  } = useQuery<StaffMember[]>({
+    queryKey: ["staff"],
+    queryFn: fetchStaff
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (payload: StaffFormState) => createStaff(payload),
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: ["staff"] });
+      closeStaffForm();
+    }
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: Partial<StaffFormState> }) => updateStaff(id, payload),
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: ["staff"] });
+      closeStaffForm();
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteStaff(id),
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: ["staff"] });
+    }
+  });
 
   const filteredStaff = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -85,15 +73,7 @@ export function BusinessStaffPage() {
     }
 
     return staffMembers.filter((member) =>
-      [
-        member.name,
-        member.email,
-        member.phone,
-        member.role,
-        member.services,
-        member.nextSlot,
-        member.status
-      ]
+      [member.name, member.email, member.phone, member.role, member.services, member.nextSlot, member.status]
         .join(" ")
         .toLowerCase()
         .includes(query)
@@ -136,27 +116,16 @@ export function BusinessStaffPage() {
   function saveStaffMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (editingStaffId) {
-      setStaffMembers((currentStaff) =>
-        currentStaff.map((member) =>
-          member.id === editingStaffId ? { ...member, ...staffForm } : member
-        )
-      );
-    } else {
-      setStaffMembers((currentStaff) => [
-        {
-          id: `staff-${Date.now()}`,
-          ...staffForm
-        },
-        ...currentStaff
-      ]);
+    if (editingStaffId !== null) {
+      updateMutation.mutate({ id: editingStaffId, payload: staffForm });
+      return;
     }
 
-    closeStaffForm();
+    createMutation.mutate(staffForm);
   }
 
-  function deleteStaffMember(staffId: string) {
-    setStaffMembers((currentStaff) => currentStaff.filter((member) => member.id !== staffId));
+  function deleteStaffMember(staffId: number) {
+    deleteMutation.mutate(staffId);
   }
 
   return (
@@ -186,6 +155,12 @@ export function BusinessStaffPage() {
             />
           </label>
         </div>
+
+        {isError ? (
+          <div className="border-b border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
+            Unable to load staff: {error instanceof Error ? error.message : "Unknown error"}
+          </div>
+        ) : null}
 
         {isFormOpen ? (
           <form className="border-b border-slate-200 bg-slate-50 p-5" onSubmit={saveStaffMember}>
@@ -231,6 +206,7 @@ export function BusinessStaffPage() {
                   value={staffForm.phone}
                   onChange={(event) => updateStaffForm("phone", event.target.value)}
                   placeholder="+1 (555) 000-0000"
+                  required
                 />
               </label>
               <label className="form-field">
@@ -268,7 +244,7 @@ export function BusinessStaffPage() {
                 <select
                   className="min-h-12 rounded-lg border border-slate-300 bg-white px-4 text-slate-950 outline-none transition focus:border-slate-950 focus:ring-4 focus:ring-slate-200"
                   value={staffForm.status}
-                  onChange={(event) => updateStaffForm("status", event.target.value as StaffStatus)}
+                  onChange={(event) => updateStaffForm("status", event.target.value)}
                 >
                   <option>Active</option>
                   <option>On leave</option>
@@ -297,46 +273,54 @@ export function BusinessStaffPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredStaff.map((member) => (
-                <tr key={member.id} className="hover:bg-slate-50">
-                  <td className="px-5 py-4">
-                    <p className="font-semibold text-slate-950">{member.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{member.id}</p>
-                  </td>
-                  <td className="px-5 py-4">
-                    <p className="text-slate-700">{member.email}</p>
-                    <p className="mt-1 text-xs text-slate-500">{member.phone}</p>
-                  </td>
-                  <td className="px-5 py-4 text-slate-700">{member.role}</td>
-                  <td className="px-5 py-4 text-slate-600">{member.services}</td>
-                  <td className="px-5 py-4 font-semibold text-slate-800">{member.nextSlot}</td>
-                  <td className="px-5 py-4">
-                    <StaffStatusBadge status={member.status} />
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white"
-                        onClick={() => openEditStaffForm(member)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
-                        onClick={() => deleteStaffMember(member.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
+              {isLoading ? (
+                <tr>
+                  <td className="px-5 py-6 text-slate-500" colSpan={7}>
+                    Loading staff members...
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredStaff.map((member) => (
+                  <tr key={member.id} className="hover:bg-slate-50">
+                    <td className="px-5 py-4">
+                      <p className="font-semibold text-slate-950">{member.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">{member.id}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="text-slate-700">{member.email}</p>
+                      <p className="mt-1 text-xs text-slate-500">{member.phone}</p>
+                    </td>
+                    <td className="px-5 py-4 text-slate-700">{member.role}</td>
+                    <td className="px-5 py-4 text-slate-600">{member.services}</td>
+                    <td className="px-5 py-4 font-semibold text-slate-800">{member.nextSlot}</td>
+                    <td className="px-5 py-4">
+                      <StaffStatusBadge status={member.status} />
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-white"
+                          onClick={() => openEditStaffForm(member)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50"
+                          onClick={() => deleteStaffMember(member.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
 
-          {filteredStaff.length === 0 ? (
+          {!isLoading && filteredStaff.length === 0 ? (
             <div className="border-t border-slate-200 p-8 text-center">
               <p className="font-semibold text-slate-950">No staff found</p>
               <p className="mt-2 text-sm text-slate-500">Try a different search term or add a new staff member.</p>

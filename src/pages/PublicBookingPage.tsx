@@ -1,20 +1,21 @@
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { Footer } from "../components/Footer";
 import { Header } from "../components/Header";
-import {
-  generatePublishedBookingInsight,
-  submitPublishedClientBooking
-} from "../lib/mockPublishedBookingApi";
-import { useAdminBookingStore } from "../store/adminBookingStore";
-import type {
-  BookingSpecialist,
-  ClientBookingConfirmation,
-  ClientBookingRequest
-} from "../types/adminBooking";
+import { AIInsightCard } from "../components/booking/AIInsightCard";
+import { createPublicBooking, fetchPublicBookingPage, fetchSlotRecommendations, type BookingRecord } from "../lib/api";
+import { useAuthStore } from "../store/authStore";
+import type { BookingSpecialist, BookingTimeSlot } from "../types/adminBooking";
+import type { AIInsight } from "../types/booking";
 
-type ClientDetailsState = Pick<ClientBookingRequest, "fullName" | "email" | "phone" | "note">;
+type ClientDetailsState = {
+  fullName: string;
+  email: string;
+  phone: string;
+  note: string;
+};
 type FormErrors = Partial<Record<keyof ClientDetailsState, string>>;
 
 const emptyClientDetails: ClientDetailsState = {
@@ -26,7 +27,17 @@ const emptyClientDetails: ClientDetailsState = {
 
 export function PublicBookingPage() {
   const { slug = "" } = useParams();
-  const page = useAdminBookingStore((state) => state.getPublishedBookingBySlug(slug));
+  const setSession = useAuthStore((state) => state.setSession);
+  const {
+    data: page,
+    isLoading,
+    isError,
+    error
+  } = useQuery({
+    queryKey: ["public-booking-page", slug],
+    queryFn: () => fetchPublicBookingPage(slug),
+    enabled: Boolean(slug),
+  });
   const dateOptions = useMemo(
     () => (page ? getDateOptions(page.availability.availableDays) : []),
     [page]
@@ -38,7 +49,19 @@ export function PublicBookingPage() {
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [confirmation, setConfirmation] = useState<ClientBookingConfirmation | null>(null);
+  const [confirmation, setConfirmation] = useState<BookingRecord | null>(null);
+  const [aiInsight, setAIInsight] = useState<AIInsight | null>(null);
+  const [aiInsightLoading, setAIInsightLoading] = useState(false);
+
+  const selectedDayName = selectedDate ? getDayName(selectedDate) : "";
+  const slotsForSelectedDay = useMemo(() => {
+    if (!page) {
+      return [];
+    }
+
+    const matchingSlots = page.availability.timeSlots.filter((slot) => !slot.day || slot.day === selectedDayName);
+    return matchingSlots.length > 0 ? matchingSlots : page.availability.timeSlots;
+  }, [page, selectedDayName]);
 
   useEffect(() => {
     if (!page) {
@@ -47,10 +70,76 @@ export function PublicBookingPage() {
 
     setSelectedSpecialistId((current) => current || page.selectedSpecialists[0]?.id || "");
     setSelectedDate((current) => current || dateOptions[0]?.value || "");
-    setSelectedTime((current) => current || page.availability.timeSlots.find((slot) => slot.isAvailable)?.time || "");
   }, [dateOptions, page]);
 
-  if (!page) {
+  useEffect(() => {
+    const firstAvailableSlot = slotsForSelectedDay.find((slot) => slot.isAvailable);
+    setSelectedTime((current) => {
+      if (current && slotsForSelectedDay.some((slot) => slot.time === current && slot.isAvailable)) {
+        return current;
+      }
+
+      return firstAvailableSlot?.time || "";
+    });
+  }, [slotsForSelectedDay]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadInsight() {
+      if (!page || !selectedSpecialistId || !selectedDate || !selectedTime) {
+        setAIInsight(null);
+        setAIInsightLoading(false);
+        return;
+      }
+
+      setAIInsightLoading(true);
+      try {
+        const insight = await fetchSlotRecommendations({
+          serviceId: page.serviceId,
+          specialistId: selectedSpecialistId,
+          serviceDurationMinutes: Number(page.serviceDurationMinutes),
+          requestedStartTime: `${selectedDate}T${selectedTime}:00`,
+          customerContext: {
+            preferredTimeOfDay: inferPreferredTimeOfDay(selectedTime)
+          }
+        });
+        if (active) {
+          setAIInsight(insight);
+        }
+      } catch {
+        if (active) {
+          setAIInsight(null);
+        }
+      } finally {
+        if (active) {
+          setAIInsightLoading(false);
+        }
+      }
+    }
+
+    void loadInsight();
+
+    return () => {
+      active = false;
+    };
+  }, [page, selectedDate, selectedSpecialistId, selectedTime]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-950">
+        <Header />
+        <main className="mx-auto max-w-3xl px-6 py-16 text-center">
+          <section className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
+            <p className="font-semibold text-slate-950">Loading booking page...</p>
+          </section>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (isError || !page) {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-950">
         <Header />
@@ -59,10 +148,10 @@ export function PublicBookingPage() {
             <p className="section-eyebrow">Booking link</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Booking page not found</h1>
             <p className="mt-3 text-slate-600">
-              This published booking link does not exist in the local mock store on this browser.
+              {error instanceof Error ? error.message : "This published booking link does not exist."}
             </p>
             <Link className="btn-primary mt-8 min-h-12 px-6 text-sm" to="/book">
-              Open demo booking portal
+              Open booking portal
             </Link>
           </section>
         </main>
@@ -71,14 +160,11 @@ export function PublicBookingPage() {
     );
   }
 
-  const publishedPage = page;
-  const selectedSpecialist = publishedPage.selectedSpecialists.find((specialist) => specialist.id === selectedSpecialistId);
-  const selectedSlot = publishedPage.availability.timeSlots.find((slot) => slot.time === selectedTime);
-  const aiInsight = selectedTime
-    ? generatePublishedBookingInsight(publishedPage.availability, selectedTime, selectedSpecialist)
-    : null;
+  const selectedSpecialist = page.selectedSpecialists.find((specialist) => specialist.id === selectedSpecialistId);
+  const selectedSlot = slotsForSelectedDay.find((slot) => slot.time === selectedTime);
   const canConfirm =
-    Boolean(selectedSpecialistId && selectedDate && selectedTime && selectedSlot?.isAvailable) && !isSubmitting;
+    Boolean(page.serviceId && selectedSpecialistId && selectedDate && selectedTime && selectedSlot?.isAvailable) &&
+    !isSubmitting;
 
   function updateClientDetails(field: keyof ClientDetailsState, value: string) {
     setClientDetails((current) => ({ ...current, [field]: value }));
@@ -92,6 +178,13 @@ export function PublicBookingPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const loadedPage = page;
+
+    if (!loadedPage) {
+      setErrorMessage("This booking page is no longer available.");
+      return;
+    }
+
     const nextErrors = validateClientDetails(clientDetails);
 
     if (Object.keys(nextErrors).length > 0) {
@@ -103,15 +196,19 @@ export function PublicBookingPage() {
     setErrorMessage("");
 
     try {
-      const result = await submitPublishedClientBooking(publishedPage, {
-        bookingPageId: publishedPage.id,
+      const result = await createPublicBooking({
+        serviceId: loadedPage.serviceId,
         specialistId: selectedSpecialistId,
-        date: selectedDate,
-        time: selectedTime,
-        ...clientDetails
+        startTime: `${selectedDate}T${selectedTime}:00`,
+        status: "confirmed",
+        note: clientDetails.note,
+        clientDetails
       });
 
-      setConfirmation(result);
+      if (result.customerSession) {
+        setSession(result.customerSession);
+      }
+      setConfirmation(result.booking);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to confirm this booking.");
     } finally {
@@ -128,25 +225,30 @@ export function PublicBookingPage() {
           </div>
           <h1 className="mt-6 text-3xl font-semibold tracking-tight text-slate-950">Booking confirmed</h1>
           <p className="mt-3 text-slate-600">
-            Thanks, {confirmation.clientName}. Your appointment has been saved with frontend mock logic.
+            Thanks, {confirmation.customerName}. Your appointment has been saved to the booking system.
           </p>
           <dl className="mt-8 grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-5 text-left sm:grid-cols-2">
-            <SummaryItem label="Business" value={confirmation.businessName} />
+            <SummaryItem label="Business" value={page.businessName} />
             <SummaryItem label="Service" value={confirmation.serviceName} />
             <SummaryItem label="Specialist" value={confirmation.specialistName} />
             <SummaryItem label="Date" value={formatDate(confirmation.date)} />
             <SummaryItem label="Time" value={confirmation.time} />
           </dl>
-          <button
-            type="button"
-            className="btn-primary mt-8 min-h-12 px-6 text-sm"
-            onClick={() => {
-              setConfirmation(null);
-              setClientDetails(emptyClientDetails);
-            }}
-          >
-            Book Another Appointment
-          </button>
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+            <Link className="btn-primary min-h-12 px-6 text-sm" to="/customer/dashboard">
+              View My Bookings
+            </Link>
+            <button
+              type="button"
+              className="btn-secondary min-h-12 px-6 text-sm"
+              onClick={() => {
+                setConfirmation(null);
+                setClientDetails(emptyClientDetails);
+              }}
+            >
+              Book Another Appointment
+            </button>
+          </div>
         </section>
       </main>
     );
@@ -158,23 +260,23 @@ export function PublicBookingPage() {
       <main>
         <section className="border-b border-slate-200 bg-white">
           <div className="mx-auto max-w-6xl px-6 py-14">
-            <p className="section-eyebrow">{publishedPage.businessName}</p>
+            <p className="section-eyebrow">{page.businessName}</p>
             <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_0.72fr] lg:items-end">
               <div>
                 <h1 className="text-4xl font-semibold tracking-tight text-slate-950 md:text-5xl">
-                  {publishedPage.title}
+                  {page.title}
                 </h1>
                 <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-600">
-                  {publishedPage.serviceDescription}
+                  {page.serviceDescription}
                 </p>
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
-                <p className="text-sm font-semibold text-slate-950">{publishedPage.serviceName}</p>
+                <p className="text-sm font-semibold text-slate-950">{page.serviceName}</p>
                 <dl className="mt-4 grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
-                  <SummaryItem label="Duration" value={`${publishedPage.serviceDurationMinutes} minutes`} />
-                  <SummaryItem label="Price" value={formatPrice(publishedPage.servicePrice)} />
-                  <SummaryItem label="Category" value={publishedPage.serviceCategory || "General"} />
-                  <SummaryItem label="Location" value={`${publishedPage.locationType}${publishedPage.locationDetails ? ` - ${publishedPage.locationDetails}` : ""}`} />
+                  <SummaryItem label="Duration" value={`${page.serviceDurationMinutes} minutes`} />
+                  <SummaryItem label="Price" value={formatPrice(page.servicePrice)} />
+                  <SummaryItem label="Category" value={page.serviceCategory || "General"} />
+                  <SummaryItem label="Location" value={`${page.locationType}${page.locationDetails ? ` - ${page.locationDetails}` : ""}`} />
                 </dl>
               </div>
             </div>
@@ -190,7 +292,7 @@ export function PublicBookingPage() {
                 body="Only specialists assigned by the business owner are shown on this page."
               />
               <div className="mt-5 grid gap-4">
-                {publishedPage.selectedSpecialists.map((specialist) => (
+                {page.selectedSpecialists.map((specialist) => (
                   <SpecialistOption
                     key={specialist.id}
                     specialist={specialist}
@@ -224,48 +326,20 @@ export function PublicBookingPage() {
                 </label>
 
                 <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  {publishedPage.availability.timeSlots.map((slot) => (
-                    <button
-                      key={slot.id}
-                      type="button"
-                      disabled={!slot.isAvailable}
-                      onClick={() => setSelectedTime(slot.time)}
-                      className={`min-h-12 rounded-lg border px-4 text-sm font-semibold transition ${
-                        selectedTime === slot.time
-                          ? "border-slate-950 bg-slate-950 text-white"
-                          : "border-slate-200 bg-white text-slate-700"
-                      } ${
-                        slot.isAvailable
-                          ? "hover:border-slate-400 hover:bg-slate-50"
-                          : "cursor-not-allowed bg-slate-100 text-slate-400 line-through"
-                      }`}
-                    >
-                      {slot.time}
-                    </button>
+                  {slotsForSelectedDay.map((slot) => (
+                    <SlotButton
+                      key={`${slot.day ?? "any"}-${slot.id}`}
+                      slot={slot}
+                      selected={selectedTime === slot.time}
+                      onSelect={() => setSelectedTime(slot.time)}
+                    />
                   ))}
                 </div>
               </div>
             </section>
 
-            {aiInsight ? (
-              <section className="rounded-lg border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-300">AI Scheduling Insight</p>
-                    <h2 className="mt-1 text-xl font-semibold">Suggested appointment quality</h2>
-                  </div>
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getRiskClass(aiInsight.conflictRisk)}`}>
-                    Conflict Risk: {aiInsight.conflictRisk}
-                  </span>
-                </div>
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <InsightMetric label="Recommended Slot" value={aiInsight.recommendedSlot} />
-                  <InsightMetric label="Utilisation" value={aiInsight.utilisation} />
-                  <InsightMetric label="Confidence" value={`${aiInsight.confidence}%`} />
-                </div>
-                <p className="mt-5 text-sm leading-6 text-slate-300">{aiInsight.explanation}</p>
-              </section>
-            ) : null}
+            {aiInsightLoading ? <EmptyState message="Preparing AI scheduling recommendations." /> : null}
+            {aiInsight ? <AIInsightCard insight={aiInsight} /> : null}
 
             <section>
               <SectionHeading
@@ -303,7 +377,7 @@ export function PublicBookingPage() {
                       value={clientDetails.note}
                       onChange={(event) => updateClientDetails("note", event.target.value)}
                       className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-slate-950 focus:ring-4 focus:ring-slate-200"
-                      placeholder={publishedPage.notes || "Share anything useful before the appointment."}
+                      placeholder={page.notes || "Share anything useful before the appointment."}
                     />
                   </label>
                 </div>
@@ -315,16 +389,16 @@ export function PublicBookingPage() {
             <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-950">Appointment summary</h2>
               <div className="mt-5 space-y-4">
-                <SummaryRow label="Business" value={publishedPage.businessName} />
-                <SummaryRow label="Service" value={publishedPage.serviceName} />
+                <SummaryRow label="Business" value={page.businessName} />
+                <SummaryRow label="Service" value={page.serviceName} />
                 <SummaryRow label="Specialist" value={selectedSpecialist?.name ?? "Not selected"} />
                 <SummaryRow label="Date" value={selectedDate ? formatDate(selectedDate) : "Not selected"} />
                 <SummaryRow label="Time" value={selectedTime || "Not selected"} />
               </div>
 
-              {publishedPage.notes ? (
+              {page.notes ? (
                 <p className="mt-5 rounded-lg bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
-                  {publishedPage.notes}
+                  {page.notes}
                 </p>
               ) : null}
 
@@ -342,7 +416,7 @@ export function PublicBookingPage() {
                 {isSubmitting ? "Confirming..." : "Confirm booking"}
               </button>
               <p className="mt-3 text-xs leading-5 text-slate-500">
-                This booking is submitted with local mock logic only.
+                This booking is saved to the backend and will appear in the company dashboard.
               </p>
             </div>
           </aside>
@@ -401,6 +475,33 @@ function SpecialistOption({
   );
 }
 
+function SlotButton({
+  slot,
+  selected,
+  onSelect
+}: {
+  slot: BookingTimeSlot;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={!slot.isAvailable}
+      onClick={onSelect}
+      className={`min-h-12 rounded-lg border px-4 text-sm font-semibold transition ${
+        selected ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-700"
+      } ${
+        slot.isAvailable
+          ? "hover:border-slate-400 hover:bg-slate-50"
+          : "cursor-not-allowed bg-slate-100 text-slate-400 line-through"
+      }`}
+    >
+      {slot.time}
+    </button>
+  );
+}
+
 function SectionHeading({ step, title, body }: { step: string; title: string; body: string }) {
   return (
     <div className="flex gap-4">
@@ -437,11 +538,10 @@ function TextField({
   );
 }
 
-function InsightMetric({ label, value }: { label: string; value: string }) {
+function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-      <p className="text-xs font-semibold uppercase text-slate-400">{label}</p>
-      <p className="mt-2 text-sm font-semibold text-white">{value}</p>
+    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm font-medium text-slate-500">
+      {message}
     </div>
   );
 }
@@ -490,7 +590,7 @@ function getDateOptions(availableDays: string[]) {
     date.setDate(date.getDate() + index);
     const dayName = new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(date);
 
-    if (!allowedDays.has(dayName)) {
+    if (allowedDays.size > 0 && !allowedDays.has(dayName)) {
       return null;
     }
 
@@ -506,6 +606,10 @@ function getDateOptions(availableDays: string[]) {
 
     return { value, label };
   }).filter((option): option is { value: string; label: string } => Boolean(option));
+}
+
+function getDayName(value: string) {
+  return new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(new Date(`${value}T00:00:00`));
 }
 
 function formatDate(value: string) {
@@ -530,10 +634,20 @@ function formatPrice(value: string) {
   }).format(amount);
 }
 
-function getRiskClass(risk: "Low" | "Medium" | "High") {
-  return {
-    Low: "bg-emerald-50 text-emerald-700",
-    Medium: "bg-amber-50 text-amber-700",
-    High: "bg-rose-50 text-rose-700"
-  }[risk];
+function inferPreferredTimeOfDay(time: string) {
+  const hour = Number(time.split(":")[0]);
+
+  if (hour < 12) {
+    return "morning";
+  }
+
+  if (hour < 14) {
+    return "midday";
+  }
+
+  if (hour < 17) {
+    return "afternoon";
+  }
+
+  return "evening";
 }

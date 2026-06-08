@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { submitMockBooking as submitBookingRequest } from "../lib/mockBookingApi";
+import { createPublicBooking as submitBookingRequest } from "../lib/api";
+import { useAuthStore } from "./authStore";
 import type {
   AIInsight,
   BookingConfirmation,
@@ -25,7 +26,7 @@ type BookingStore = {
   setTime: (time: string) => void;
   updateClientDetails: (details: Partial<ClientDetails>) => void;
   setAIInsight: (insight: AIInsight | null) => void;
-  submitMockBooking: () => Promise<void>;
+  submitBooking: () => Promise<void>;
   resetBooking: () => void;
 };
 
@@ -98,7 +99,7 @@ export const useBookingStore = create<BookingStore>((set, get) => ({
 
   setAIInsight: (insight) => set({ aiInsight: insight }),
 
-  submitMockBooking: async () => {
+  submitBooking: async () => {
     const state = get();
 
     if (!state.selectedService || !state.selectedSpecialist || !state.selectedDate || !state.selectedTime) {
@@ -112,13 +113,28 @@ export const useBookingStore = create<BookingStore>((set, get) => ({
     set({ bookingStatus: "submitting", errorMessage: "" });
 
     try {
-      const confirmation = await submitBookingRequest({
+      // Convert local date + time to ISO startTime expected by backend
+      const startTime = `${state.selectedDate}T${state.selectedTime}:00`;
+
+      const result = await submitBookingRequest({
         serviceId: state.selectedService.id,
         specialistId: state.selectedSpecialist.id,
-        date: state.selectedDate,
-        time: state.selectedTime,
-        clientDetails: state.clientDetails
+        startTime,
+        clientDetails: state.clientDetails,
+        note: state.clientDetails.note || ""
       });
+      if (result.customerSession) {
+        useAuthStore.getState().setSession(result.customerSession);
+      }
+      const confirmation: BookingConfirmation = {
+        id: result.booking.id,
+        service: result.booking.service,
+        specialist: result.booking.specialist,
+        date: result.booking.date,
+        time: result.booking.time,
+        clientName: result.booking.customerName,
+        createdAt: result.booking.createdAt,
+      };
 
       set({
         bookingStatus: "confirmed",
