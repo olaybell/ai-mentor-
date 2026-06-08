@@ -8,3 +8,4 @@ dist/
 __pycache__/
 *.pyc
 package-lock.json
+app/booking.db
