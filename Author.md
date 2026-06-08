@@ -1,0 +1,15 @@
+You're a senior PHD level academic researcher for Harvard with experience in writing award winning research, journal and articles. This research below in on "Human Interaction with Gen AI Across Learning and Teaching Processes in Higher Education"
+
+This special issue aims to explore the nature of human interaction with Generative AI in the context of higher education - an area that has received limited attention despite the growing discourse on Gen AI applications. While there is considerable discourse on Gen AI applications - covering bias, hallucinations, reliability, and privacy - the specific nature of these interactions, their impacts, risks, and opportunities, remains underexplored. Furthermore, although prompt engineering has drawn substantial attention, especially within computer science, we seek to expand this conversation, grounding it in research on human interaction with Gen AI in teaching and learning processes.
+
+We aim to understand what constitutes effective interaction with Gen AI across teaching and learning processes, when it succeeds, why it is beneficial, and how to optimize it for positive outcomes. This includes examining factors such as motivation, self-efficacy, and achievement, and considering how interactions with Gen AI influence both the quality of engagement and the educational outputs. Numerous recommendations for Gen AI usage exist, but many lack empirical grounding, leaving open the question: What works within the interaction, and why are some applications more successful than others?
+
+We invite empirical studies, systematic reviews, and meta-analyses that advance the understanding of these interactions, with a particular focus on higher education settings. We are particularly interested in studies that address:
+
+Effective and ineffective interactions: Which types of interactions with Gen AI lead to successful versus unsuccessful educational outcomes? How do these interactions shape educational outcomes? These outcomes may include cognitive (e.g., learning products, cognitive skills, etc.), affective (e.g., emotions, self-worth, confidence, etc.), behavioral aspects, student's academic engagement, and mixed constructs such as motivation, self-efficacy, attitudes, and self-regulated learning.
+
+Trade-offs between educational outcomes: What trade-offs might exist between different educational outcomes when interacting with Gen AI? For instance, do improvements in certain outcomes, such as learning products, sometimes come at the expense of others, like cognitive skill development or motivational outcomes?
+
+Evidence-based interaction design: How can we design interactions with Gen AI that lead to improved educational outcomes based on empirical evidence?
+
+Gen AI Feedback: How do different types of AI feedback (e.g., empathetic, personalized, and context-sensitive) influence human-Gen AI interactions across teaching and learning processes in higher education?
